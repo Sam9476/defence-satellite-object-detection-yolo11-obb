@@ -1,3 +1,8 @@
+import os
+# Must be set BEFORE any ultralytics/cv2 import
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "0"
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 import streamlit as st
 import numpy as np
 import io
@@ -9,14 +14,14 @@ from PIL import Image, ImageDraw, ImageFont
 # PAGE CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="SentinelVision AI — Defence Satellite Object Detection",
+    page_title="SentinelVision AI",
     page_icon="🛰️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ─────────────────────────────────────────────
-# CUSTOM CSS
+# CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -61,11 +66,36 @@ hr{border-color:var(--border)!important;margin:1.5rem 0!important}
 
 
 # ─────────────────────────────────────────────
-# MODEL LOADER
+# MODEL — loaded once, cached
 # ─────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def load_model():
+    """
+    Ultralytics internally imports cv2 which on Streamlit Cloud raises
+    'libGL.so.1: cannot open shared object file' unless we patch cv2.imshow
+    before the import happens. We use the headless trick: set the env var
+    and then monkey-patch so the import succeeds silently.
+    """
     try:
+        # Prevent cv2 from trying to open a display
+        import sys
+
+        # Attempt normal import first
+        try:
+            import cv2
+        except ImportError:
+            # cv2 not available — create a minimal stub so ultralytics doesn't crash
+            import types
+            cv2_stub = types.ModuleType("cv2")
+            cv2_stub.__version__ = "4.9.0"
+            cv2_stub.imencode = lambda *a, **k: (True, np.array([]))
+            cv2_stub.imdecode = lambda *a, **k: np.zeros((100,100,3), np.uint8)
+            cv2_stub.cvtColor = lambda img, *a, **k: img
+            cv2_stub.COLOR_BGR2RGB = 4
+            cv2_stub.COLOR_RGB2BGR = 4
+            cv2_stub.IMREAD_COLOR = 1
+            sys.modules["cv2"] = cv2_stub
+
         from ultralytics import YOLO
         model = YOLO("best.pt")
         return model, None
@@ -75,27 +105,41 @@ def load_model():
 
 # ─────────────────────────────────────────────
 # CLASS CONFIG
+# NOTE: ultralytics remaps class IDs to 0,1,2 during training.
+# Original dataset: 0=airplane, 13=ship, 18=vehicle
+# After training with 3 classes: 0=airplane, 1=ship, 2=vehicle
 # ─────────────────────────────────────────────
 CLASS_COLORS = {
-    "airplane": (57, 255, 20),
-    "ship":     (0, 200, 255),
-    "vehicle":  (255, 179, 0),
+    "airplane": (57, 255, 20),    # neon green
+    "ship":     (0, 200, 255),    # cyan
+    "vehicle":  (255, 179, 0),    # amber
 }
 CLASS_EMOJI = {"airplane": "✈️", "ship": "🚢", "vehicle": "🚗"}
-CLASS_IDS   = {0: "airplane", 13: "ship", 18: "vehicle"}
+
+# Remapped IDs from training (ultralytics always uses 0-indexed for filtered datasets)
+CLASS_IDS = {0: "airplane", 1: "ship", 2: "vehicle"}
 
 
 # ─────────────────────────────────────────────
-# PIL-ONLY OBB DRAWING  — no cv2 required
+# PIL-ONLY OBB DRAWING — no cv2 calls in app code
 # ─────────────────────────────────────────────
 def draw_obb_pil(image_pil, detections_raw):
     img = image_pil.copy().convert("RGBA")
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 13)
-    except Exception:
+    font = None
+    for font_path in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    ]:
+        try:
+            font = ImageFont.truetype(font_path, 13)
+            break
+        except Exception:
+            continue
+    if font is None:
         font = ImageFont.load_default()
 
     for det in detections_raw:
@@ -104,15 +148,16 @@ def draw_obb_pil(image_pil, detections_raw):
         pts      = det["pts"]
         r, g, b  = CLASS_COLORS.get(cls_name, (255, 255, 255))
 
-        # Semi-transparent filled polygon
-        draw.polygon(pts, fill=(r, g, b, 30), outline=(r, g, b, 230))
-        # Extra outline pass for thickness
-        draw.polygon(pts, outline=(r, g, b, 200))
+        draw.polygon(pts, fill=(r, g, b, 25), outline=(r, g, b, 230))
+        # Draw extra passes for thicker border
+        for _ in range(2):
+            draw.polygon(pts, outline=(r, g, b, 200))
 
-        # Label
-        lx, ly  = int(pts[0][0]), int(pts[0][1])
-        label   = f" {cls_name.upper()} {conf:.2f} "
-        bbox    = draw.textbbox((lx, ly - 18), label, font=font)
+        # Label chip
+        lx, ly = int(pts[0][0]), int(pts[0][1])
+        ly = max(ly, 18)
+        label = f" {cls_name.upper()} {conf:.2f} "
+        bbox  = draw.textbbox((lx, ly - 18), label, font=font)
         draw.rectangle(bbox, fill=(r, g, b, 220))
         draw.text((lx, ly - 18), label, fill=(0, 0, 0, 255), font=font)
 
@@ -233,7 +278,7 @@ st.markdown("""
   <p class="header-title">🛰️ SENTINELVISION AI</p>
   <p class="header-sub">
     <span class="status-dot"></span>SYSTEM ONLINE &nbsp;│&nbsp;
-    Defence Satellite Object Detection System &nbsp;│&nbsp;
+    Defence Satellite Object Detection &nbsp;│&nbsp;
     <span class="badge">YOLO11s-OBB</span>
     <span class="badge">DIOR-R</span>
     <span class="badge">mAP50 92.9%</span>
@@ -241,12 +286,12 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ── SIDEBAR ──────────────────────────────────
+# ── SIDEBAR ──
 with st.sidebar:
     st.markdown('<p class="section-label">🔧 Detection Controls</p>', unsafe_allow_html=True)
     conf_threshold = st.slider(
         "Confidence Threshold", min_value=0.10, max_value=0.90,
-        value=0.25, step=0.01, help="Filter detections below this score",
+        value=0.25, step=0.01,
     )
     st.caption(f"Active threshold: `{conf_threshold:.2f}`")
 
@@ -254,12 +299,12 @@ with st.sidebar:
     st.markdown('<p class="section-label">📊 Model Info</p>', unsafe_allow_html=True)
     st.markdown("""
     <div class="perf-row"><span>Architecture</span><span class="perf-val">YOLO11s-OBB</span></div>
-    <div class="perf-row"><span>Dataset</span><span class="perf-val">DIOR-R</span></div>
+    <div class="perf-row"><span>Dataset</span><span class="perf-val">DIOR-R (3-class)</span></div>
     <div class="perf-row"><span>Precision</span><span class="perf-val">92.9%</span></div>
     <div class="perf-row"><span>Recall</span><span class="perf-val">87.7%</span></div>
     <div class="perf-row"><span>mAP@50</span><span class="perf-val">92.9%</span></div>
     <div class="perf-row"><span>mAP@50-95</span><span class="perf-val">77.1%</span></div>
-    <div class="perf-row"><span>Inference</span><span class="perf-val">7.8 ms</span></div>
+    <div class="perf-row"><span>Inference</span><span class="perf-val">7.8 ms/img</span></div>
     """, unsafe_allow_html=True)
 
     st.markdown("---")
@@ -282,19 +327,29 @@ with st.sidebar:
           <div class="perf-row" style="font-size:.65rem"><span>mAP50</span><span class="perf-val">{map50}</span></div>
         </div>""", unsafe_allow_html=True)
 
-# ── MODEL LOAD ───────────────────────────────
+# ── LOAD MODEL ──
 with st.spinner("🔄 Initialising YOLO11s-OBB model…"):
     model, model_error = load_model()
 
 if model_error:
-    st.error(f"⚠️ Model load failed: `{model_error}`")
-    st.info("Ensure `best.pt` is in the same directory as `app.py`.")
+    st.error(f"""
+    ⚠️ **Model failed to load.**
+
+    **Error:** `{model_error}`
+
+    **Checklist:**
+    - Ensure `best.pt` is committed to your repo root (same folder as `app.py`)
+    - File must be named exactly `best.pt` (lowercase)
+    - If file is >100 MB, GitHub will reject it — use Git LFS or host on Hugging Face Hub
+    - Check the Streamlit Cloud logs for the full traceback
+    """)
     st.stop()
 
-st.success("✅ YOLO11s-OBB model loaded — system ready")
+st.success("✅ YOLO11s-OBB loaded — system ready for detection")
 
-# ── TABS ─────────────────────────────────────
+# ── TABS ──
 tab_detect, tab_info = st.tabs(["🛰️  DETECTION", "📋  PROJECT INFO"])
+
 
 # ════════════════════════════════════════════
 # TAB 1 — DETECTION
@@ -302,64 +357,107 @@ tab_detect, tab_info = st.tabs(["🛰️  DETECTION", "📋  PROJECT INFO"])
 with tab_detect:
     st.markdown('<p class="section-label">📁 Upload Satellite Imagery</p>', unsafe_allow_html=True)
     uploaded = st.file_uploader(
-        "Drop a satellite image (JPG / JPEG / PNG)",
+        "Upload satellite image",
         type=["jpg","jpeg","png"],
         label_visibility="collapsed",
+        help="Supported formats: JPG, JPEG, PNG. Recommended: 640×640 or larger.",
     )
 
     if uploaded is None:
+        # ── EMPTY STATE ──
         st.markdown("""
-        <div style="text-align:center;padding:48px 24px;background:rgba(13,27,46,0.6);
-             border:1px dashed rgba(28,58,94,0.8);border-radius:4px;margin-top:12px">
-          <p style="font-family:'Orbitron',monospace;font-size:1.1rem;color:#1c3a5e;margin:0">
-            NO IMAGERY LOADED</p>
+        <div style="text-align:center;padding:56px 24px;
+             background:rgba(13,27,46,0.6);
+             border:1px dashed rgba(28,58,94,0.8);
+             border-radius:4px;margin-top:12px">
+          <p style="font-family:'Orbitron',monospace;font-size:1.4rem;
+             color:#1c3a5e;margin:0;letter-spacing:.1em">📡</p>
+          <p style="font-family:'Orbitron',monospace;font-size:1rem;
+             color:#1c3a5e;margin:8px 0 0;letter-spacing:.1em">
+            AWAITING SATELLITE FEED</p>
           <p style="font-family:'Share Tech Mono',monospace;font-size:.72rem;
              color:#5a7a9a;letter-spacing:.15em;margin-top:10px">
-            UPLOAD A SATELLITE IMAGE TO BEGIN DETECTION</p>
-        </div>""", unsafe_allow_html=True)
+            UPLOAD A SATELLITE IMAGE TO INITIATE OBJECT DETECTION</p>
+          <p style="font-family:'Share Tech Mono',monospace;font-size:.65rem;
+             color:#2a4a6a;margin-top:16px">
+            Detects: ✈️ Airplanes &nbsp;|&nbsp; 🚢 Ships &nbsp;|&nbsp; 🚗 Vehicles</p>
+        </div>
+        """, unsafe_allow_html=True)
 
     else:
-        image_pil = Image.open(uploaded).convert("RGB")
+        try:
+            image_pil = Image.open(uploaded).convert("RGB")
+        except Exception as e:
+            st.error(f"⚠️ Could not open image: `{e}`. Please upload a valid JPG or PNG file.")
+            st.stop()
+
         w, h = image_pil.size
 
-        with st.spinner("⚙️ Running YOLO11s-OBB inference…"):
+        # Warn if image is very small
+        if w < 100 or h < 100:
+            st.warning("⚠️ Image resolution is very low. Detection quality may be poor. Recommended minimum: 640×640 px.")
+
+        # ── INFERENCE ──
+        with st.spinner("⚙️ Running YOLO11s-OBB inference on satellite imagery…"):
             t0 = time.perf_counter()
-            annotated_pil, detections = run_inference(model, image_pil, conf_threshold)
+            try:
+                annotated_pil, detections = run_inference(model, image_pil, conf_threshold)
+            except Exception as e:
+                st.error(f"⚠️ Inference failed: `{e}`")
+                st.info("Try lowering the confidence threshold or uploading a different image.")
+                st.stop()
             elapsed_ms = (time.perf_counter() - t0) * 1000
 
-        counts = {"airplane": 0, "ship": 0, "vehicle": 0}
+        # ── COUNTS ──
+        counts  = {"airplane": 0, "ship": 0, "vehicle": 0}
         for d in detections:
             counts[d["class"]] = counts.get(d["class"], 0) + 1
         avg_conf = (sum(d["confidence"] for d in detections) / len(detections)) if detections else 0.0
 
-        # Metrics
+        # ── DETECTION RESULT BANNER ──
+        if len(detections) == 0:
+            st.warning(f"""
+            🔍 **No objects detected** at confidence threshold `{conf_threshold:.2f}`.
+
+            **Try:**
+            - Lowering the confidence threshold using the sidebar slider
+            - Uploading a clearer or higher-resolution satellite image
+            - Ensuring the image contains airplanes, ships, or vehicles
+            """)
+        else:
+            st.success(f"✅ **{len(detections)} object(s) detected** — {counts['airplane']} airplane(s), {counts['ship']} ship(s), {counts['vehicle']} vehicle(s)")
+
+        # ── METRICS ──
         st.markdown('<p class="section-label">📊 Detection Summary</p>', unsafe_allow_html=True)
         m1,m2,m3,m4,m5,m6 = st.columns(6)
-        m1.metric("TOTAL",        len(detections))
-        m2.metric("✈️ AIRPLANES",  counts["airplane"])
-        m3.metric("🚢 SHIPS",      counts["ship"])
-        m4.metric("🚗 VEHICLES",   counts["vehicle"])
-        m5.metric("AVG CONF",     f"{avg_conf:.2f}")
-        m6.metric("INFER TIME",   f"{elapsed_ms:.0f} ms")
+        m1.metric("TOTAL OBJECTS",  len(detections))
+        m2.metric("✈️ AIRPLANES",   counts["airplane"])
+        m3.metric("🚢 SHIPS",       counts["ship"])
+        m4.metric("🚗 VEHICLES",    counts["vehicle"])
+        m5.metric("AVG CONFIDENCE", f"{avg_conf:.2f}" if detections else "N/A")
+        m6.metric("INFER TIME",     f"{elapsed_ms:.0f} ms")
 
         st.markdown("---")
 
-        # Side-by-side
+        # ── IMAGE COMPARISON ──
         st.markdown('<p class="section-label">🖼️ Visual Comparison</p>', unsafe_allow_html=True)
         col_o, col_d = st.columns(2)
         with col_o:
             st.markdown("**ORIGINAL IMAGE**")
             st.image(image_pil, use_container_width=True)
-            st.caption(f"Resolution: {w} × {h} px  |  {uploaded.type}")
+            st.caption(f"Resolution: {w} × {h} px  |  Format: {uploaded.type}  |  Size: {uploaded.size/1024:.1f} KB")
         with col_d:
             st.markdown("**DETECTED OBJECTS**")
             st.image(annotated_pil, use_container_width=True)
-            st.caption(f"{len(detections)} object(s) detected  |  threshold ≥ {conf_threshold:.2f}")
+            if detections:
+                st.caption(f"{len(detections)} object(s) detected  |  conf ≥ {conf_threshold:.2f}  |  {elapsed_ms:.0f} ms inference")
+            else:
+                st.caption(f"No detections at conf ≥ {conf_threshold:.2f} — try lowering threshold")
 
         st.markdown("---")
 
         if detections:
-            # Charts
+            # ── ANALYTICS ──
             st.markdown('<p class="section-label">📈 Visual Analytics</p>', unsafe_allow_html=True)
             ch1, ch2 = st.columns(2)
             with ch1:
@@ -367,43 +465,82 @@ with tab_detect:
                 st.plotly_chart(make_bar_chart(counts),
                                 use_container_width=True, config={"displayModeBar": False})
             with ch2:
-                st.markdown("**CONFIDENCE DISTRIBUTION**")
+                st.markdown("**CONFIDENCE SCORE DISTRIBUTION**")
                 hist = make_conf_hist(detections)
                 if hist:
                     st.plotly_chart(hist, use_container_width=True, config={"displayModeBar": False})
 
             st.markdown("---")
 
-            # Detection log
+            # ── DETECTION LOG TABLE ──
             st.markdown('<p class="section-label">🗂️ Detection Log</p>', unsafe_allow_html=True)
             import pandas as pd
             df = pd.DataFrame([{
                 "ID":         i+1,
                 "Class":      d["class"].capitalize(),
+                "Emoji":      CLASS_EMOJI.get(d["class"], "?"),
                 "Confidence": f"{d['confidence']:.4f}",
                 "Status":     "✅ CONFIRMED" if d["confidence"] >= 0.5 else "⚠️ PROBABLE",
             } for i, d in enumerate(detections)])
             st.dataframe(df, use_container_width=True, hide_index=True)
 
+            # Per-class breakdown
+            st.markdown('<p class="section-label" style="margin-top:16px">🔢 Class Breakdown</p>', unsafe_allow_html=True)
+            b1, b2, b3 = st.columns(3)
+            for col, (cls, emoji) in zip([b1,b2,b3], CLASS_EMOJI.items()):
+                cls_dets = [d for d in detections if d["class"] == cls]
+                if cls_dets:
+                    avg_c = sum(d["confidence"] for d in cls_dets) / len(cls_dets)
+                    max_c = max(d["confidence"] for d in cls_dets)
+                    col.markdown(f"""
+                    <div style="background:var(--panel);border:1px solid var(--border);
+                         border-top:2px solid {'#39ff14' if cls=='airplane' else '#00c8ff' if cls=='ship' else '#ffb300'};
+                         border-radius:4px;padding:12px;text-align:center">
+                      <div style="font-size:1.5rem">{emoji}</div>
+                      <div style="font-family:'Orbitron',monospace;font-size:.7rem;
+                           color:#ffb300;margin:4px 0">{cls.upper()}</div>
+                      <div style="font-family:'Orbitron',monospace;font-size:1.4rem;color:#39ff14">
+                        {counts[cls]}</div>
+                      <div style="font-family:'Share Tech Mono',monospace;font-size:.62rem;color:#5a7a9a;margin-top:4px">
+                        Avg conf: {avg_c:.2f} &nbsp;|&nbsp; Max: {max_c:.2f}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    col.markdown(f"""
+                    <div style="background:var(--panel);border:1px solid var(--border);
+                         border-radius:4px;padding:12px;text-align:center;opacity:.4">
+                      <div style="font-size:1.5rem">{emoji}</div>
+                      <div style="font-family:'Orbitron',monospace;font-size:.7rem;color:#5a7a9a;margin:4px 0">
+                        {cls.upper()}</div>
+                      <div style="font-family:'Share Tech Mono',monospace;font-size:.68rem;color:#5a7a9a">
+                        NOT DETECTED</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
         st.markdown("---")
 
-        # Downloads
+        # ── DOWNLOADS ──
         st.markdown('<p class="section-label">⬇️ Export Results</p>', unsafe_allow_html=True)
         dl1, dl2, _ = st.columns([1,1,2])
         with dl1:
             st.download_button(
-                label="⬇ DETECTED IMAGE",
+                label="⬇ DETECTED IMAGE (PNG)",
                 data=pil_to_bytes(annotated_pil),
-                file_name="sentinelvision_detection.png",
+                file_name=f"sentinelvision_detection_{int(time.time())}.png",
                 mime="image/png",
+                help="Download the annotated satellite image with bounding boxes",
             )
         with dl2:
             st.download_button(
-                label="⬇ SUMMARY CSV",
+                label="⬇ DETECTION REPORT (CSV)",
                 data=build_csv(detections),
-                file_name="sentinelvision_summary.csv",
+                file_name=f"sentinelvision_report_{int(time.time())}.csv",
                 mime="text/csv",
+                help="Download the full detection log as a CSV file",
             )
+
+        if not detections:
+            st.info("💡 No detections to export. Lower the confidence threshold or try a different image.")
 
 
 # ════════════════════════════════════════════
@@ -416,45 +553,62 @@ with tab_info:
         st.markdown("## PROJECT OVERVIEW")
         st.markdown("""
         **SentinelVision AI** is a professional AI-powered defence surveillance dashboard
-        for detecting high-value objects from satellite imagery using a **YOLO11s-OBB**
-        oriented bounding box model trained on the **DIOR-R** dataset.
+        for detecting high-value military objects from satellite imagery using a
+        **YOLO11s-OBB** oriented bounding box detection model trained on the
+        **DIOR-R** dataset.
 
-        Designed for Intelligence, Surveillance & Reconnaissance (ISR) operations,
-        the system identifies three defence-relevant object categories with
-        real-time inference at under 13 ms per image.
+        The system is purpose-built for **Intelligence, Surveillance & Reconnaissance (ISR)**
+        operations, capable of identifying three defence-relevant object categories
+        in real-time at under 13 ms per image.
         """)
         st.markdown("---")
         st.markdown("### ARCHITECTURE DETAILS")
         for k, v in {
-            "Model":      "YOLO11s-OBB",
-            "Framework":  "Ultralytics YOLO + PyTorch",
-            "Dataset":    "DIOR-R (3-class filtered)",
-            "Epochs":     "50",
-            "Image Size": "640 × 640 px",
-            "Batch Size": "4",
-            "GPU":        "NVIDIA Tesla T4",
-            "Annotation": "YOLO OBB (8-point polygon)",
+            "Model":        "YOLO11s-OBB",
+            "Framework":    "Ultralytics YOLO + PyTorch",
+            "Dataset":      "DIOR-R (3-class filtered)",
+            "Classes":      "Airplane · Ship · Vehicle",
+            "Epochs":       "50",
+            "Image Size":   "640 × 640 px",
+            "Batch Size":   "4",
+            "GPU":          "NVIDIA Tesla T4",
+            "Optimizer":    "AdamW (auto-selected)",
+            "Annotation":   "YOLO OBB 8-point polygon",
         }.items():
             st.markdown(f'<div class="perf-row"><span>{k}</span><span class="perf-val">{v}</span></div>',
                         unsafe_allow_html=True)
 
     with c2:
         st.markdown("### OVERALL METRICS")
-        for k, v in {"Precision":"92.9%","Recall":"87.7%","mAP@50":"92.9%","mAP@50-95":"77.1%"}.items():
-            st.markdown(f'<div class="perf-row"><span>{k}</span><span class="perf-val">{v}</span></div>',
-                        unsafe_allow_html=True)
-        st.markdown("### INFERENCE SPEED")
-        for k, v in {"Preprocess":"0.4 ms","Inference":"7.8 ms","Postprocess":"4.6 ms","Total":"~12.8 ms"}.items():
-            st.markdown(f'<div class="perf-row"><span>{k}</span><span class="perf-val">{v}</span></div>',
-                        unsafe_allow_html=True)
-        st.markdown("### CLASS-WISE RESULTS")
-        for cls, (prec, rec, map50) in {
-            "Airplane": ("97.3%","97.3%","98.4%"),
-            "Ship":     ("95.0%","96.3%","98.2%"),
-            "Vehicle":  ("86.4%","69.6%","82.1%"),
+        for k, v in {
+            "Precision":   "92.9%",
+            "Recall":      "87.7%",
+            "mAP@50":      "92.9%",
+            "mAP@50-95":   "77.1%",
+            "Fitness":     "0.771",
         }.items():
+            st.markdown(f'<div class="perf-row"><span>{k}</span><span class="perf-val">{v}</span></div>',
+                        unsafe_allow_html=True)
+
+        st.markdown("### INFERENCE SPEED")
+        for k, v in {
+            "Preprocess":  "0.4 ms",
+            "Inference":   "7.8 ms",
+            "Postprocess": "4.6 ms",
+            "Total":       "~12.8 ms / image",
+        }.items():
+            st.markdown(f'<div class="perf-row"><span>{k}</span><span class="perf-val">{v}</span></div>',
+                        unsafe_allow_html=True)
+
+        st.markdown("### CLASS-WISE RESULTS")
+        for cls, emoji, (prec, rec, map50) in [
+            ("Airplane", "✈️", ("97.3%","97.3%","98.4%")),
+            ("Ship",     "🚢", ("95.0%","96.3%","98.2%")),
+            ("Vehicle",  "🚗", ("86.4%","69.6%","82.1%")),
+        ]:
             st.markdown(f"""
-            <div style="margin:8px 0 4px;font-family:'Orbitron',monospace;font-size:.65rem;color:#ffb300">{cls.upper()}</div>
+            <div style="margin:8px 0 4px;font-family:'Orbitron',monospace;
+                 font-size:.65rem;color:#ffb300">{emoji} {cls.upper()}</div>
             <div class="perf-row" style="font-size:.68rem"><span>Precision</span><span class="perf-val">{prec}</span></div>
             <div class="perf-row" style="font-size:.68rem"><span>Recall</span><span class="perf-val">{rec}</span></div>
             <div class="perf-row" style="font-size:.68rem"><span>mAP50</span><span class="perf-val">{map50}</span></div>
