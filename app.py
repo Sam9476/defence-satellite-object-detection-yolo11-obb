@@ -289,11 +289,45 @@ st.markdown("""
 # ── SIDEBAR ──
 with st.sidebar:
     st.markdown('<p class="section-label">🔧 Detection Controls</p>', unsafe_allow_html=True)
-    conf_threshold = st.slider(
-        "Confidence Threshold", min_value=0.10, max_value=0.90,
-        value=0.25, step=0.01,
+
+    # Sync slider ↔ number input via session state
+    if "conf_val" not in st.session_state:
+        st.session_state.conf_val = 0.25
+
+    slider_val = st.slider(
+        "Confidence Threshold",
+        min_value=0.10, max_value=0.90,
+        value=st.session_state.conf_val,
+        step=0.01,
+        key="conf_slider",
+        help="Drag to adjust — or type an exact value below",
     )
-    st.caption(f"Active threshold: `{conf_threshold:.2f}`")
+    # If slider moved, push to session state
+    if slider_val != st.session_state.conf_val:
+        st.session_state.conf_val = slider_val
+
+    num_val = st.number_input(
+        "Or type exact value",
+        min_value=0.10, max_value=0.90,
+        value=st.session_state.conf_val,
+        step=0.01,
+        format="%.2f",
+        key="conf_num",
+        label_visibility="visible",
+        help="Enter a value between 0.10 and 0.90",
+    )
+    # If number input changed, push to session state
+    if num_val != st.session_state.conf_val:
+        st.session_state.conf_val = num_val
+        st.rerun()
+
+    conf_threshold = st.session_state.conf_val
+    st.markdown(
+        f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:.7rem;'
+        f'color:#39ff14;letter-spacing:.1em;margin-top:4px">'
+        f'▶ ACTIVE THRESHOLD: <strong>{conf_threshold:.2f}</strong></div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("---")
     st.markdown('<p class="section-label">📊 Model Info</p>', unsafe_allow_html=True)
@@ -348,7 +382,11 @@ if model_error:
 st.success("✅ YOLO11s-OBB loaded — system ready for detection")
 
 # ── TABS ──
-tab_detect, tab_info = st.tabs(["🛰️  DETECTION", "📋  PROJECT INFO"])
+tab_detect, tab_info, tab_results = st.tabs([
+    "🛰️  DETECTION",
+    "📋  PROJECT INFO",
+    "📊  TRAINING RESULTS",
+])
 
 
 # ════════════════════════════════════════════
@@ -560,7 +598,32 @@ with tab_info:
         The system is purpose-built for **Intelligence, Surveillance & Reconnaissance (ISR)**
         operations, capable of identifying three defence-relevant object categories
         in real-time at under 13 ms per image.
+
+        Developed as part of an internship at **DRDO SSPL (Solid State Physics Laboratory)**.
         """)
+        st.markdown("---")
+        st.markdown("### PROJECT WORKFLOW")
+        steps = [
+            ("1️⃣", "Dataset Acquisition",   "Downloaded DIOR-R (~7 GB, 20 classes, 23,463 images) with rotated bounding box annotations in YOLO OBB format."),
+            ("2️⃣", "Local Filtering",        "Filtered the dataset locally to retain only 3 defence-relevant classes — Airplane (ID 0), Ship (ID 13), Vehicle (ID 18) — reducing it to ~3 GB."),
+            ("3️⃣", "Cloud Upload",           "Compressed the filtered dataset (DIOR-3class) and uploaded it as a ZIP to Google Drive for persistent cloud storage."),
+            ("4️⃣", "Google Colab Training",  "Mounted Google Drive in Colab, unzipped the dataset, and trained YOLO11s-OBB for 50 epochs on an NVIDIA Tesla T4 GPU (~5 hours). Drive mounting avoided repeated 3 GB uploads each session."),
+            ("5️⃣", "Model Evaluation",       "Evaluated best.pt on the test split — achieved mAP@50 of 92.9%. Generated confusion matrices, PR curves, F1 curves, and validation batch predictions."),
+            ("6️⃣", "GitHub & Deployment",    "Pushed all artefacts (best.pt, app.py, training charts) to GitHub. Connected the repository to Streamlit Community Cloud for one-click deployment."),
+        ]
+        for icon, title, desc in steps:
+            st.markdown(f"""
+            <div style="display:flex;gap:12px;margin-bottom:14px;
+                 background:rgba(13,27,46,0.5);border:1px solid var(--border);
+                 border-left:3px solid #39ff14;border-radius:3px;padding:10px 14px">
+              <div style="font-size:1.2rem;flex-shrink:0">{icon}</div>
+              <div>
+                <div style="font-family:'Orbitron',monospace;font-size:.65rem;
+                     color:#ffb300;letter-spacing:.08em;margin-bottom:3px">{title}</div>
+                <div style="font-family:'Exo 2',sans-serif;font-size:.8rem;
+                     color:#c8daf0;line-height:1.5">{desc}</div>
+              </div>
+            </div>""", unsafe_allow_html=True)
         st.markdown("---")
         st.markdown("### ARCHITECTURE DETAILS")
         for k, v in {
@@ -617,14 +680,199 @@ with tab_info:
     st.markdown("---")
     st.markdown("### DATASET INFORMATION")
     d1, d2, d3 = st.columns(3)
-    d1.metric("Original Classes","20"); d1.metric("Total Images","23,463")
-    d2.metric("Filtered Classes","3");  d2.metric("Label Format","YOLO OBB")
-    d3.metric("OBB Points","8-point");  d3.metric("Splits","Train / Val / Test")
+    d1.metric("Original Classes","20");  d1.metric("Total Images","23,463")
+    d2.metric("Filtered Classes","3");   d2.metric("Label Format","YOLO OBB")
+    d3.metric("OBB Points","8-point");   d3.metric("Splits","Train / Val / Test")
 
     st.markdown("---")
+
+    # ── PROJECT WORKFLOW / STORY ──────────────────────────────────────────
+    st.markdown("### 🗺️ PROJECT WORKFLOW")
+    st.markdown("""
+    <div style="font-family:'Exo 2',sans-serif;font-size:.85rem;color:#c8daf0;line-height:1.8">
+    The complete end-to-end pipeline from raw data to live deployment, developed during an
+    internship at <strong style="color:#39ff14">DRDO — SSPL (Solid State Physics Laboratory)</strong>.
+    </div>
+    """, unsafe_allow_html=True)
+
+    steps = [
+        ("01", "#39ff14", "📦 Dataset Acquisition",
+         "Started with the full <strong>DIOR-R</strong> dataset — 23,463 satellite images across "
+         "20 object classes (~7 GB). DIOR-R uses oriented bounding box (OBB) annotations, "
+         "making it ideal for satellite imagery where objects appear at arbitrary rotations."),
+
+        ("02", "#00c8ff", "🔧 Local Dataset Filtering",
+         "Filtered the full 20-class dataset down to the 3 defence-relevant classes — "
+         "<strong>airplane, ship, vehicle</strong> — locally, reducing the dataset to ~3 GB. "
+         "All other class annotations and images containing only non-target objects were removed. "
+         "The filtered dataset was packaged as a zip and uploaded to Google Drive."),
+
+        ("03", "#ffb300", "☁️ Google Colab + Drive Setup",
+         "Mounted Google Drive inside Google Colab to access the 3 GB filtered dataset "
+         "without re-uploading each session. This enabled fast data loading directly from Drive "
+         "into the training pipeline, avoiding the slow manual upload bottleneck."),
+
+        ("04", "#39ff14", "🏋️ Model Training — YOLO11s-OBB",
+         "Trained <strong>YOLO11s-OBB</strong> (pretrained on COCO) for 50 epochs on an "
+         "<strong>NVIDIA Tesla T4 GPU</strong> (Colab). Used AdamW optimizer (auto-selected), "
+         "640×640 resolution, batch size 4. Total training time: ~5 hours. "
+         "Best checkpoint saved as <code>best.pt</code>."),
+
+        ("05", "#00c8ff", "📊 Evaluation & Testing",
+         "Evaluated the trained model on the held-out test set. Analysed precision-recall curves, "
+         "confusion matrices, and F1-confidence curves per class. Ran inference on sample "
+         "satellite images to visually verify OBB quality and class discrimination."),
+
+        ("06", "#ffb300", "🚀 Deployment — Streamlit Cloud",
+         "Pushed <code>best.pt</code>, <code>app.py</code>, training artefacts, and "
+         "<code>requirements.txt</code> to GitHub. Connected the repository to "
+         "<strong>Streamlit Community Cloud</strong> for free, zero-infrastructure deployment. "
+         "App is publicly accessible and runs inference live in the browser."),
+    ]
+
+    for num, color, title, body in steps:
+        st.markdown(f"""
+        <div style="display:flex;gap:16px;margin-bottom:14px;
+             background:rgba(13,27,46,0.5);border:1px solid var(--border);
+             border-left:3px solid {color};border-radius:4px;padding:14px 16px">
+          <div style="font-family:'Orbitron',monospace;font-size:1.1rem;
+               color:{color};opacity:.5;min-width:32px;padding-top:2px">{num}</div>
+          <div>
+            <div style="font-family:'Orbitron',monospace;font-size:.72rem;
+                 color:{color};letter-spacing:.08em;margin-bottom:5px">{title}</div>
+            <div style="font-family:'Exo 2',sans-serif;font-size:.82rem;
+                 color:#a0b8d0;line-height:1.6">{body}</div>
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ── DRDO SSPL BADGE ──────────────────────────────────────────────────
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,rgba(13,27,46,0.9),rgba(15,31,58,0.9));
+         border:1px solid var(--border);border-top:2px solid #39ff14;
+         border-radius:4px;padding:18px 24px;text-align:center">
+      <div style="font-family:'Orbitron',monospace;font-size:.65rem;
+           color:#5a7a9a;letter-spacing:.2em;margin-bottom:6px">DEVELOPED DURING INTERNSHIP AT</div>
+      <div style="font-family:'Orbitron',monospace;font-size:1rem;font-weight:800;
+           color:#39ff14;text-shadow:0 0 16px rgba(57,255,20,.4);letter-spacing:.1em">
+        DRDO — SSPL</div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:.72rem;
+           color:#c8daf0;margin-top:4px">
+        Defence Research & Development Organisation<br>
+        Solid State Physics Laboratory, New Delhi</div>
+    </div>
+
+    <div style="font-family:'Share Tech Mono',monospace;font-size:.6rem;
+         color:#5a7a9a;text-align:center;letter-spacing:.15em;padding:14px 0 4px">
+    SENTINELVISION AI &nbsp;│&nbsp; YOLO11s-OBB &nbsp;│&nbsp;
+    DIOR-R DATASET &nbsp;│&nbsp; DRDO SSPL &nbsp;│&nbsp; ULTRALYTICS + STREAMLIT
+    </div>""", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════
+# TAB 3 — TRAINING RESULTS
+# ════════════════════════════════════════════
+with tab_results:
+    st.markdown('<p class="section-label">📊 Model Training & Evaluation Results</p>',
+                unsafe_allow_html=True)
+    st.markdown("""
+    > Training artefacts generated after 50 epochs on NVIDIA Tesla T4 GPU using the
+    > DIOR-R 3-class filtered dataset. All charts are saved from the Ultralytics training run.
+    """)
+
+    # ── helper to load image from repo with a friendly fallback ──
+    def show_result_img(path: str, caption: str, key: str):
+        """Try to load a local file; show a placeholder panel if missing."""
+        from pathlib import Path
+        p = Path(path)
+        if p.exists():
+            img = Image.open(p)
+            st.image(img, caption=caption, use_container_width=True)
+        else:
+            st.markdown(f"""
+            <div style="background:rgba(13,27,46,0.7);border:1px dashed rgba(28,58,94,0.8);
+                 border-radius:4px;padding:28px;text-align:center">
+              <p style="font-family:'Share Tech Mono',monospace;font-size:.65rem;
+                 color:#2a4a6a;letter-spacing:.12em;margin:0">
+                {caption}<br><span style="color:#1c3a5e">{path}</span><br>
+                <span style="color:#1a3a5a">FILE NOT FOUND IN REPO</span>
+              </p>
+            </div>""", unsafe_allow_html=True)
+
+    # ── SECTION 1: Training Curves ──
+    st.markdown("### 📈 Training Curves")
+    st.caption("Overall loss and metric progression across 50 epochs.")
+    show_result_img("results.png", "Training Results — Loss & Metrics over 50 Epochs", "results")
+
+    st.markdown("---")
+
+    # ── SECTION 2: Precision / Recall / F1 Curves ──
+    st.markdown("### 🎯 Precision · Recall · F1 Curves")
+    col_pr1, col_pr2 = st.columns(2)
+    with col_pr1:
+        show_result_img("BoxPR_curve.png",  "Precision-Recall Curve", "pr")
+        show_result_img("BoxP_curve.png",   "Precision vs Confidence", "pc")
+    with col_pr2:
+        show_result_img("BoxR_curve.png",   "Recall vs Confidence", "rc")
+        show_result_img("BoxF1_curve.png",  "F1 Score vs Confidence", "f1")
+
+    st.markdown("---")
+
+    # ── SECTION 3: Confusion Matrices ──
+    st.markdown("### 🔢 Confusion Matrices")
+    cm1, cm2 = st.columns(2)
+    with cm1:
+        show_result_img("confusion_matrix.png",
+                        "Confusion Matrix (Raw Counts)", "cm_raw")
+    with cm2:
+        show_result_img("confusion_matrix_normalized.png",
+                        "Confusion Matrix (Normalised)", "cm_norm")
+
+    # Explain the confusion matrix for context
+    st.markdown("""
+    <div style="background:rgba(13,27,46,0.5);border:1px solid var(--border);
+         border-left:3px solid #ffb300;border-radius:3px;
+         padding:12px 16px;margin-top:8px">
+      <div style="font-family:'Orbitron',monospace;font-size:.65rem;
+           color:#ffb300;margin-bottom:6px">ℹ️ READING THE CONFUSION MATRIX</div>
+      <div style="font-family:'Exo 2',sans-serif;font-size:.8rem;color:#c8daf0;line-height:1.6">
+        Rows = actual class, Columns = predicted class.
+        The diagonal (top-left to bottom-right) represents correct detections.
+        Off-diagonal cells are misclassifications — e.g. a vehicle predicted as background.
+        The normalised matrix shows rates (0–1) making cross-class comparison easier.
+        Vehicle shows lower recall (69.6%) visible as more off-diagonal mass — 
+        expected since small vehicles at satellite altitude are harder to distinguish.
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ── SECTION 4: Validation Predictions ──
+    st.markdown("### 🖼️ Validation Batch Predictions")
+    st.caption("Sample predictions on the validation set — green boxes = ground truth, coloured = model predictions.")
+    vb1, vb2, vb3 = st.columns(3)
+    for col, fname, label in [
+        (vb1, "val_batch0_pred.jpg", "Val Batch 0"),
+        (vb2, "val_batch1_pred.jpg", "Val Batch 1"),
+        (vb3, "val_batch2_pred.jpg", "Val Batch 2"),
+    ]:
+        with col:
+            show_result_img(fname, label, fname)
+
+    st.markdown("---")
+
+    # ── SECTION 5: Final metrics recap ──
+    st.markdown("### 🏆 Final Model Performance")
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Overall mAP@50",    "92.9%")
+    r2.metric("Overall mAP@50-95", "77.1%")
+    r3.metric("Precision",         "92.9%")
+    r4.metric("Recall",            "87.7%")
+
     st.markdown("""
     <div style="font-family:'Share Tech Mono',monospace;font-size:.65rem;
-         color:#5a7a9a;text-align:center;letter-spacing:.15em;padding:8px 0">
+         color:#5a7a9a;text-align:center;letter-spacing:.15em;padding:12px 0">
     SENTINELVISION AI &nbsp;│&nbsp; YOLO11s-OBB &nbsp;│&nbsp;
-    DIOR-R DATASET &nbsp;│&nbsp; ULTRALYTICS + STREAMLIT
+    DIOR-R DATASET &nbsp;│&nbsp; DRDO SSPL &nbsp;│&nbsp; ULTRALYTICS + STREAMLIT
     </div>""", unsafe_allow_html=True)
