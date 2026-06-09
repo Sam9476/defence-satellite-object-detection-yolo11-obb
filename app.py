@@ -290,44 +290,13 @@ st.markdown("""
 with st.sidebar:
     st.markdown('<p class="section-label">🔧 Detection Controls</p>', unsafe_allow_html=True)
 
-    # Sync slider ↔ number input via session state
-    if "conf_val" not in st.session_state:
-        st.session_state.conf_val = 0.25
-
-    slider_val = st.slider(
+    conf_threshold = st.slider(
         "Confidence Threshold",
         min_value=0.10, max_value=0.90,
-        value=st.session_state.conf_val,
-        step=0.01,
-        key="conf_slider",
-        help="Drag to adjust — or type an exact value below",
+        value=0.25, step=0.01,
+        help="Filter out detections below this confidence score",
     )
-    # If slider moved, push to session state
-    if slider_val != st.session_state.conf_val:
-        st.session_state.conf_val = slider_val
-
-    num_val = st.number_input(
-        "Or type exact value",
-        min_value=0.10, max_value=0.90,
-        value=st.session_state.conf_val,
-        step=0.01,
-        format="%.2f",
-        key="conf_num",
-        label_visibility="visible",
-        help="Enter a value between 0.10 and 0.90",
-    )
-    # If number input changed, push to session state
-    if num_val != st.session_state.conf_val:
-        st.session_state.conf_val = num_val
-        st.rerun()
-
-    conf_threshold = st.session_state.conf_val
-    st.markdown(
-        f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:.7rem;'
-        f'color:#39ff14;letter-spacing:.1em;margin-top:4px">'
-        f'▶ ACTIVE THRESHOLD: <strong>{conf_threshold:.2f}</strong></div>',
-        unsafe_allow_html=True,
-    )
+    st.caption(f"Active threshold: `{conf_threshold:.2f}`")
 
     st.markdown("---")
     st.markdown('<p class="section-label">📊 Model Info</p>', unsafe_allow_html=True)
@@ -482,11 +451,11 @@ with tab_detect:
         col_o, col_d = st.columns(2)
         with col_o:
             st.markdown("**ORIGINAL IMAGE**")
-            st.image(image_pil, use_container_width=True)
+            st.image(image_pil, width="stretch")
             st.caption(f"Resolution: {w} × {h} px  |  Format: {uploaded.type}  |  Size: {uploaded.size/1024:.1f} KB")
         with col_d:
             st.markdown("**DETECTED OBJECTS**")
-            st.image(annotated_pil, use_container_width=True)
+            st.image(annotated_pil, width="stretch")
             if detections:
                 st.caption(f"{len(detections)} object(s) detected  |  conf ≥ {conf_threshold:.2f}  |  {elapsed_ms:.0f} ms inference")
             else:
@@ -501,12 +470,12 @@ with tab_detect:
             with ch1:
                 st.markdown("**OBJECT COUNT BY CLASS**")
                 st.plotly_chart(make_bar_chart(counts),
-                                use_container_width=True, config={"displayModeBar": False})
+                                width="stretch", config={"displayModeBar": False})
             with ch2:
                 st.markdown("**CONFIDENCE SCORE DISTRIBUTION**")
                 hist = make_conf_hist(detections)
                 if hist:
-                    st.plotly_chart(hist, use_container_width=True, config={"displayModeBar": False})
+                    st.plotly_chart(hist, width="stretch", config={"displayModeBar": False})
 
             st.markdown("---")
 
@@ -520,7 +489,7 @@ with tab_detect:
                 "Confidence": f"{d['confidence']:.4f}",
                 "Status":     "✅ CONFIRMED" if d["confidence"] >= 0.5 else "⚠️ PROBABLE",
             } for i, d in enumerate(detections)])
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
 
             # Per-class breakdown
             st.markdown('<p class="section-label" style="margin-top:16px">🔢 Class Breakdown</p>', unsafe_allow_html=True)
@@ -788,7 +757,7 @@ with tab_results:
         p = Path(path)
         if p.exists():
             img = Image.open(p)
-            st.image(img, caption=caption, use_container_width=True)
+            st.image(img, caption=caption, width="stretch")
         else:
             st.markdown(f"""
             <div style="background:rgba(13,27,46,0.7);border:1px dashed rgba(28,58,94,0.8);
