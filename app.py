@@ -568,7 +568,7 @@ with tab_info:
         operations, capable of identifying three defence-relevant object categories
         in real-time at under 13 ms per image.
 
-        Developed as part of an internship at **DRDO SSPL (Solid State Physics Laboratory)**.
+        Developed as part of an internship at **SSPL (Solid State Physics Laboratory)**.
         """)
         st.markdown("---")
         st.markdown("### PROJECT WORKFLOW")
@@ -660,7 +660,7 @@ with tab_info:
     st.markdown("""
     <div style="font-family:'Exo 2',sans-serif;font-size:.85rem;color:#c8daf0;line-height:1.8">
     The complete end-to-end pipeline from raw data to live deployment, developed during an
-    internship at <strong style="color:#39ff14">DRDO — SSPL (Solid State Physics Laboratory)</strong>.
+    internship at <strong style="color:#39ff14">SSPL (Solid State Physics Laboratory)</strong>.
     </div>
     """, unsafe_allow_html=True)
 
@@ -725,17 +725,17 @@ with tab_info:
            color:#5a7a9a;letter-spacing:.2em;margin-bottom:6px">DEVELOPED DURING INTERNSHIP AT</div>
       <div style="font-family:'Orbitron',monospace;font-size:1rem;font-weight:800;
            color:#39ff14;text-shadow:0 0 16px rgba(57,255,20,.4);letter-spacing:.1em">
-        DRDO — SSPL</div>
+        SSPL</div>
       <div style="font-family:'Share Tech Mono',monospace;font-size:.72rem;
            color:#c8daf0;margin-top:4px">
-        Defence Research & Development Organisation<br>
+        <br>
         Solid State Physics Laboratory, New Delhi</div>
     </div>
 
     <div style="font-family:'Share Tech Mono',monospace;font-size:.6rem;
          color:#5a7a9a;text-align:center;letter-spacing:.15em;padding:14px 0 4px">
     SENTINELVISION AI &nbsp;│&nbsp; YOLO11s-OBB &nbsp;│&nbsp;
-    DIOR-R DATASET &nbsp;│&nbsp; DRDO SSPL &nbsp;│&nbsp; ULTRALYTICS + STREAMLIT
+    DIOR-R DATASET &nbsp;│&nbsp; SSPL &nbsp;│&nbsp; ULTRALYTICS + STREAMLIT
     </div>""", unsafe_allow_html=True)
 
 
