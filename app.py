@@ -843,5 +843,5 @@ with tab_results:
     <div style="font-family:'Share Tech Mono',monospace;font-size:.65rem;
          color:#5a7a9a;text-align:center;letter-spacing:.15em;padding:12px 0">
     SENTINELVISION AI &nbsp;│&nbsp; YOLO11s-OBB &nbsp;│&nbsp;
-    DIOR-R DATASET &nbsp;│&nbsp; DRDO SSPL &nbsp;│&nbsp; ULTRALYTICS + STREAMLIT
+    DIOR-R DATASET &nbsp;│&nbsp; SSPL &nbsp;│&nbsp; ULTRALYTICS + STREAMLIT
     </div>""", unsafe_allow_html=True)
